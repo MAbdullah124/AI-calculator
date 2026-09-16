@@ -47,10 +47,10 @@ API_BASE = "https://api.frankfurter.dev/v2"
 def get_currencies():
     r = requests.get(f"{API_BASE}/currencies", timeout=10)
     r.raise_for_status()
-    return r.json()
+    data = r.json()
     if isinstance(data, list):
         return{
-            item.bet("code") or item.get("symbol") or item.get("iso"): item.get("name",item.get("code",""))
+            item.get("code") or item.get("symbol") or item.get("iso"): item.get("name",item.get("code",""))
             for item in data 
         }
         return data
