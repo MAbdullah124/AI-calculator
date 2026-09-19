@@ -1,112 +1,90 @@
 import streamlit as st
 import requests
-from decimal import Decimal, InvalidOperation
 
 st.set_page_config(page_title="Smart Calculator & Currency Converter", page_icon="🧮", layout="centered")
+st.title("🧮 Smart Calculator")
+st.caption("Basic calculator + PKR currency converter")
 
-st.title("🧮 Smart Calculator & Currency Converter")
-st.caption("Basic arithmetic + PKR ↔ worldwide currency conversion")
-
-# ---------------- Calculator ----------------
-st.header("🧮 Calculator")
+st.header("➕ Basic Calculator")
 col1, col2 = st.columns(2)
 with col1:
-    num1 = st.number_input("First number", value=0.0, format="%.10f")
+    num1 = st.number_input("First number", value=0.0)
 with col2:
-    num2 = st.number_input("Second number", value=0.0, format="%.10f")
+    num2 = st.number_input("Second number", value=0.0)
 
-operation = st.selectbox("Operation", ["Addition (+)", "Subtraction (-)", "Multiplication (×)", "Division (÷)"])
+operation = st.selectbox("Choose operation", ["Addition (+)", "Subtraction (-)", "Multiplication (×)", "Division (÷)"])
 
 if st.button("Calculate", type="primary"):
     if operation == "Addition (+)":
-        result = num1 + num2
-        expression = f"{num1:g} + {num2:g}"
+        result, symbol = num1 + num2, "+"
     elif operation == "Subtraction (-)":
-        result = num1 - num2
-        expression = f"{num1:g} - {num2:g}"
+        result, symbol = num1 - num2, "-"
     elif operation == "Multiplication (×)":
-        result = num1 * num2
-        expression = f"{num1:g} × {num2:g}"
+        result, symbol = num1 * num2, "×"
     else:
         if num2 == 0:
             st.error("❌ Division by zero is not allowed.")
-            st.stop()
-        result = num1 / num2
-        expression = f"{num1:g} ÷ {num2:g}"
-    st.success(f"Result: {expression} = {result:g}")
+            result = None
+        else:
+            result, symbol = num1 / num2, "÷"
+    if result is not None:
+        st.success(f"Result: {num1:g} {symbol} {num2:g} = {result:g}")
 
-# ---------------- Currency Converter ----------------
 st.divider()
 st.header("💱 Currency Converter")
-st.write("Convert PKR to another currency or another supported currency to PKR.")
+st.write("Convert PKR to supported world currencies and supported currencies to PKR.")
 
-# Frankfurter is a free exchange-rate API and does not require an API key.
-API_BASE = "https://api.frankfurter.dev/v2"
-
-@st.cache_data(ttl=3600)
-def get_currencies():
-    r = requests.get(f"{API_BASE}/currencies", timeout=10)
-    r.raise_for_status()
-    data = r.json()
-    if isinstance(data, list):
-        return{
-            item.get("code") or item.get("symbol") or item.get("iso"): item.get("name",item.get("code",""))
-            for item in data 
-        }
-        return data
+API_URL = "https://open.er-api.com/v6/latest/USD"
+CURRENCIES = {
+    "PKR": "Pakistani Rupee", "USD": "US Dollar", "EUR": "Euro", "GBP": "British Pound",
+    "AED": "UAE Dirham", "SAR": "Saudi Riyal", "QAR": "Qatari Riyal", "KWD": "Kuwaiti Dinar",
+    "BHD": "Bahraini Dinar", "OMR": "Omani Rial", "INR": "Indian Rupee", "CNY": "Chinese Yuan",
+    "JPY": "Japanese Yen", "KRW": "South Korean Won", "CAD": "Canadian Dollar", "AUD": "Australian Dollar",
+    "NZD": "New Zealand Dollar", "CHF": "Swiss Franc", "TRY": "Turkish Lira", "MYR": "Malaysian Ringgit",
+    "SGD": "Singapore Dollar", "THB": "Thai Baht", "RUB": "Russian Ruble", "ZAR": "South African Rand",
+    "BRL": "Brazilian Real", "MXN": "Mexican Peso", "NOK": "Norwegian Krone", "SEK": "Swedish Krona",
+    "DKK": "Danish Krone", "PLN": "Polish Zloty", "HKD": "Hong Kong Dollar", "IDR": "Indonesian Rupiah",
+    "VND": "Vietnamese Dong"
+}
 
 @st.cache_data(ttl=3600)
-def get_rate(base, quote):
-    r = requests.get(f"{API_BASE}/rate/{base}/{quote}", timeout=10)
-    r.raise_for_status()
-    data = r.json()
-    return Decimal(str(data["rate"])), data.get("date", "Unknown")
+def get_exchange_rates():
+    response = requests.get(API_URL, timeout=15)
+    response.raise_for_status()
+    data = response.json()
+    if data.get("result") != "success":
+        raise RuntimeError("Exchange-rate service did not return successful data.")
+    return data["rates"], data.get("time_last_update_utc", "Unknown")
 
 try:
-    currencies = get_currencies()
-    codes = sorted(currencies.keys())
-
-    if "PKR" not in codes:
-        st.error("PKR is not currently available from the exchange-rate service.")
-        st.stop()
-
+    rates, update_time = get_exchange_rates()
     direction = st.radio("Conversion direction", ["PKR → Foreign Currency", "Foreign Currency → PKR"], horizontal=True)
-    amount_text = st.text_input("Amount", value="100")
 
+    choices = [code for code in CURRENCIES if code != "PKR"]
     if direction == "PKR → Foreign Currency":
-        foreign_codes = [c for c in codes if c != "PKR"]
-        target = st.selectbox("Convert PKR to", foreign_codes, format_func=lambda c: f"{c} — {currencies[c]}")
-        base = "PKR"
-        quote = target
+        from_currency = "PKR"
+        to_currency = st.selectbox("Convert PKR to", choices, format_func=lambda code: f"{code} — {CURRENCIES[code]}")
     else:
-        foreign_codes = [c for c in codes if c != "PKR"]
-        source = st.selectbox("Convert from", foreign_codes, format_func=lambda c: f"{c} — {currencies[c]}")
-        base = source
-        quote = "PKR"
+        to_currency = "PKR"
+        from_currency = st.selectbox("Convert from", choices, format_func=lambda code: f"{code} — {CURRENCIES[code]}")
+
+    amount = st.number_input(f"Amount in {from_currency}", min_value=0.01, value=100.00, step=1.00)
 
     if st.button("Convert Currency", type="primary"):
-        try:
-            amount = Decimal(amount_text.strip())
-            if amount < 0:
-                st.error("❌ Please enter a positive amount.")
-                st.stop()
-
-            rate, rate_date = get_rate(base, quote)
-            converted = amount * rate
-
-            st.success(f"{amount:,.2f} {base} = {converted:,.2f} {quote}")
-            st.info(f"Exchange rate: 1 {base} = {rate:,.8f} {quote}\n\nRate date: {rate_date}")
-        except InvalidOperation:
-            st.error("❌ Please enter a valid number.")
-        except requests.exceptions.RequestException:
-            st.error("❌ Could not retrieve the exchange rate. Check your internet connection and try again.")
-        except Exception as e:
-            st.error(f"❌ Currency conversion error: {e}")
-
+        if from_currency not in rates or to_currency not in rates:
+            st.error("❌ The selected currency is not currently available from the exchange-rate service.")
+        else:
+            source_rate = float(rates[from_currency])
+            target_rate = float(rates[to_currency])
+            conversion_rate = target_rate / source_rate
+            converted_amount = amount * conversion_rate
+            st.success(f"{amount:,.2f} {from_currency} = {converted_amount:,.2f} {to_currency}")
+            st.info(f"1 {from_currency} = {conversion_rate:,.6f} {to_currency}")
+            st.caption(f"Last API update: {update_time}")
 except requests.exceptions.RequestException:
-    st.error("❌ Could not load currencies. Check your internet connection and refresh the app.")
+    st.error("❌ Could not connect to the exchange-rate service. Please check your internet connection and try again.")
 except Exception as e:
     st.error(f"❌ Could not initialize currency converter: {e}")
 
 st.divider()
-st.caption("Exchange-rate data: Frankfurter API. Rates are reference rates and may differ from bank or exchange-counter rates.")
+st.caption("Currency rates are reference rates from an online exchange-rate service. Bank, card, or exchange-counter rates may be different.")
